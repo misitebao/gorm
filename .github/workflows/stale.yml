@@ -1,7 +1,7 @@
-name: "Close Missing Playground issues"
+name: "Stale"
 on:
   schedule:
-  - cron: "*/10 * * * *"
+  - cron: "0 2 * * *"
 
 jobs:
   stale:
@@ -13,9 +13,10 @@ jobs:
       uses: actions/stale@v3.0.7
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-        stale-issue-message: "This issue has been automatically marked as stale as it missing playground pull request link, checkout [https://github.com/go-gorm/playground](https://github.com/go-gorm/playground) for details, it will be closed in 2 days if no further activity occurs."
+        stale-issue-message: "This issue has been automatically marked as stale because it has been open 60 days with no activity. Remove stale label or comment or this will be closed in 30 days"
+        days-before-stale: 60
+        days-before-close: 30
         stale-issue-label: "status:stale"
-        days-before-stale: 0
-        days-before-close: 2
-        remove-stale-when-updated: true
-        only-labels: "type:missing reproduction steps"
+        exempt-issue-labels: 'type:feature,type:with reproduction steps,type:has pull request'
+        stale-pr-label: 'status:stale'
+        exempt-pr-labels: 'type:feature,type:with reproduction steps,type:has pull request'

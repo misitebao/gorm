@@ -23,7 +23,7 @@ func Query(db *gorm.DB) {
 			BuildQuerySQL(db)
 		}
 
-		if !db.DryRun {
+		if !db.DryRun && db.Error == nil {
 			rows, err := db.Statement.ConnPool.QueryContext(db.Statement.Context, db.Statement.SQL.String(), db.Statement.Vars...)
 			if err != nil {
 				db.AddError(err)
@@ -64,14 +64,32 @@ func BuildQuerySQL(db *gorm.DB) {
 				clauseSelect.Columns[idx] = clause.Column{Name: name, Raw: true}
 			}
 		}
-	} else if db.Statement.Schema != nil && db.Statement.ReflectValue.IsValid() && db.Statement.ReflectValue.Type() != db.Statement.Schema.ModelType {
-		stmt := gorm.Statement{DB: db}
-		// smaller struct
-		if err := stmt.Parse(db.Statement.Dest); err == nil {
-			clauseSelect.Columns = make([]clause.Column, len(stmt.Schema.DBNames))
+	} else if db.Statement.Schema != nil && len(db.Statement.Omits) > 0 {
+		selectColumns, _ := db.Statement.SelectAndOmitColumns(false, false)
+		clauseSelect.Columns = make([]clause.Column, 0, len(db.Statement.Schema.DBNames))
+		for _, dbName := range db.Statement.Schema.DBNames {
+			if v, ok := selectColumns[dbName]; (ok && v) || !ok {
+				clauseSelect.Columns = append(clauseSelect.Columns, clause.Column{Name: dbName})
+			}
+		}
+	} else if db.Statement.Schema != nil && db.Statement.ReflectValue.IsValid() {
+		smallerStruct := false
+		switch db.Statement.ReflectValue.Kind() {
+		case reflect.Struct:
+			smallerStruct = db.Statement.ReflectValue.Type() != db.Statement.Schema.ModelType
+		case reflect.Slice:
+			smallerStruct = db.Statement.ReflectValue.Type().Elem() != db.Statement.Schema.ModelType
+		}
 
-			for idx, dbName := range stmt.Schema.DBNames {
-				clauseSelect.Columns[idx] = clause.Column{Name: dbName}
+		if smallerStruct {
+			stmt := gorm.Statement{DB: db}
+			// smaller struct
+			if err := stmt.Parse(db.Statement.Dest); err == nil && stmt.Schema.ModelType != db.Statement.Schema.ModelType {
+				clauseSelect.Columns = make([]clause.Column, len(stmt.Schema.DBNames))
+
+				for idx, dbName := range stmt.Schema.DBNames {
+					clauseSelect.Columns[idx] = clause.Column{Name: dbName}
+				}
 			}
 		}
 	}
@@ -106,13 +124,13 @@ func BuildQuerySQL(db *gorm.DB) {
 				for idx, ref := range relation.References {
 					if ref.OwnPrimaryKey {
 						exprs[idx] = clause.Eq{
-							Column: clause.Column{Table: db.Statement.Schema.Table, Name: ref.PrimaryKey.DBName},
+							Column: clause.Column{Table: clause.CurrentTable, Name: ref.PrimaryKey.DBName},
 							Value:  clause.Column{Table: tableAliasName, Name: ref.ForeignKey.DBName},
 						}
 					} else {
 						if ref.PrimaryValue == "" {
 							exprs[idx] = clause.Eq{
-								Column: clause.Column{Table: db.Statement.Schema.Table, Name: ref.ForeignKey.DBName},
+								Column: clause.Column{Table: clause.CurrentTable, Name: ref.ForeignKey.DBName},
 								Value:  clause.Column{Table: tableAliasName, Name: ref.PrimaryKey.DBName},
 							}
 						} else {

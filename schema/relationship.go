@@ -71,9 +71,9 @@ func (schema *Schema) parseRelation(field *Field) {
 		return
 	}
 
-	if polymorphic, _ := field.TagSettings["POLYMORPHIC"]; polymorphic != "" {
+	if polymorphic := field.TagSettings["POLYMORPHIC"]; polymorphic != "" {
 		schema.buildPolymorphicRelation(relation, field, polymorphic)
-	} else if many2many, _ := field.TagSettings["MANY2MANY"]; many2many != "" {
+	} else if many2many := field.TagSettings["MANY2MANY"]; many2many != "" {
 		schema.buildMany2ManyRelation(relation, field, many2many)
 	} else {
 		switch field.IndirectFieldType.Kind() {
@@ -157,6 +157,7 @@ func (schema *Schema) buildPolymorphicRelation(relation *Relationship, field *Fi
 
 		// use same data type for foreign keys
 		relation.Polymorphic.PolymorphicID.DataType = primaryKeyField.DataType
+		relation.Polymorphic.PolymorphicID.GORMDataType = primaryKeyField.GORMDataType
 
 		relation.References = append(relation.References, &Reference{
 			PrimaryKey:    primaryKeyField,
@@ -219,7 +220,7 @@ func (schema *Schema) buildMany2ManyRelation(relation *Relationship, field *Fiel
 			Name:    joinFieldName,
 			PkgPath: ownField.StructField.PkgPath,
 			Type:    ownField.StructField.Type,
-			Tag:     removeSettingFromTag(ownField.StructField.Tag, "column"),
+			Tag:     removeSettingFromTag(removeSettingFromTag(ownField.StructField.Tag, "column"), "autoincrement"),
 		})
 	}
 
@@ -242,7 +243,7 @@ func (schema *Schema) buildMany2ManyRelation(relation *Relationship, field *Fiel
 			Name:    joinFieldName,
 			PkgPath: relField.StructField.PkgPath,
 			Type:    relField.StructField.Type,
-			Tag:     removeSettingFromTag(relField.StructField.Tag, "column"),
+			Tag:     removeSettingFromTag(removeSettingFromTag(relField.StructField.Tag, "column"), "autoincrement"),
 		})
 	}
 
@@ -285,6 +286,7 @@ func (schema *Schema) buildMany2ManyRelation(relation *Relationship, field *Fiel
 	for idx, f := range relation.JoinTable.Fields {
 		// use same data type for foreign keys
 		f.DataType = fieldsMap[f.Name].DataType
+		f.GORMDataType = fieldsMap[f.Name].GORMDataType
 		relation.JoinTable.PrimaryFields[idx] = f
 		ownPriamryField := schema == fieldsMap[f.Name].Schema && ownFieldsMap[f.Name]
 
@@ -312,7 +314,6 @@ func (schema *Schema) buildMany2ManyRelation(relation *Relationship, field *Fiel
 			OwnPrimaryKey: ownPriamryField,
 		})
 	}
-	return
 }
 
 func (schema *Schema) guessRelation(relation *Relationship, field *Field, guessHas bool) {
@@ -388,6 +389,7 @@ func (schema *Schema) guessRelation(relation *Relationship, field *Field, guessH
 	for idx, foreignField := range foreignFields {
 		// use same data type for foreign keys
 		foreignField.DataType = primaryFields[idx].DataType
+		foreignField.GORMDataType = primaryFields[idx].GORMDataType
 
 		relation.References = append(relation.References, &Reference{
 			PrimaryKey:    primaryFields[idx],

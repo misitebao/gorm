@@ -138,11 +138,11 @@ func (tx *DB) assignExprsToValue(exprs []clause.Expression) {
 			switch column := eq.Column.(type) {
 			case string:
 				if field := tx.Statement.Schema.LookUpField(column); field != nil {
-					field.Set(tx.Statement.ReflectValue, eq.Value)
+					tx.AddError(field.Set(tx.Statement.ReflectValue, eq.Value))
 				}
 			case clause.Column:
 				if field := tx.Statement.Schema.LookUpField(column.Name); field != nil {
-					field.Set(tx.Statement.ReflectValue, eq.Value)
+					tx.AddError(field.Set(tx.Statement.ReflectValue, eq.Value))
 				}
 			default:
 			}
@@ -274,10 +274,17 @@ func (db *DB) Count(count *int64) (tx *DB) {
 		expr := clause.Expr{SQL: "count(1)"}
 
 		if len(tx.Statement.Selects) == 1 {
+			dbName := tx.Statement.Selects[0]
 			if tx.Statement.Parse(tx.Statement.Model) == nil {
-				if f := tx.Statement.Schema.LookUpField(tx.Statement.Selects[0]); f != nil {
-					expr = clause.Expr{SQL: "COUNT(DISTINCT(?))", Vars: []interface{}{clause.Column{Name: f.DBName}}}
+				if f := tx.Statement.Schema.LookUpField(dbName); f != nil {
+					dbName = f.DBName
 				}
+			}
+
+			if tx.Statement.Distinct {
+				expr = clause.Expr{SQL: "COUNT(DISTINCT(?))", Vars: []interface{}{clause.Column{Name: dbName}}}
+			} else {
+				expr = clause.Expr{SQL: "COUNT(?)", Vars: []interface{}{clause.Column{Name: dbName}}}
 			}
 		}
 
@@ -325,7 +332,7 @@ func (db *DB) Pluck(column string, dest interface{}) (tx *DB) {
 			}
 		}
 	} else if tx.Statement.Table == "" {
-		tx.AddError(ErrorModelValueRequired)
+		tx.AddError(ErrModelValueRequired)
 	}
 
 	fields := strings.FieldsFunc(column, utils.IsChar)
@@ -433,7 +440,7 @@ func (db *DB) Rollback() *DB {
 
 func (db *DB) SavePoint(name string) *DB {
 	if savePointer, ok := db.Dialector.(SavePointerDialectorInterface); ok {
-		savePointer.SavePoint(db, name)
+		db.AddError(savePointer.SavePoint(db, name))
 	} else {
 		db.AddError(ErrUnsupportedDriver)
 	}
@@ -442,7 +449,7 @@ func (db *DB) SavePoint(name string) *DB {
 
 func (db *DB) RollbackTo(name string) *DB {
 	if savePointer, ok := db.Dialector.(SavePointerDialectorInterface); ok {
-		savePointer.RollbackTo(db, name)
+		db.AddError(savePointer.RollbackTo(db, name))
 	} else {
 		db.AddError(ErrUnsupportedDriver)
 	}
@@ -453,7 +460,13 @@ func (db *DB) RollbackTo(name string) *DB {
 func (db *DB) Exec(sql string, values ...interface{}) (tx *DB) {
 	tx = db.getInstance()
 	tx.Statement.SQL = strings.Builder{}
-	clause.Expr{SQL: sql, Vars: values}.Build(tx.Statement)
+
+	if strings.Contains(sql, "@") {
+		clause.NamedExpr{SQL: sql, Vars: values}.Build(tx.Statement)
+	} else {
+		clause.Expr{SQL: sql, Vars: values}.Build(tx.Statement)
+	}
+
 	tx.callbacks.Raw().Execute(tx)
 	return
 }

@@ -177,6 +177,24 @@ func TestFillSmallerStruct(t *testing.T) {
 	if !regexp.MustCompile("SELECT .*id.*name.*updated_at.*created_at.* FROM .*users").MatchString(result.Statement.SQL.String()) {
 		t.Fatalf("SQL should include selected names, but got %v", result.Statement.SQL.String())
 	}
+
+	result = DB.Session(&gorm.Session{DryRun: true}).Model(&User{}).Find(&User{}, user.ID)
+
+	if regexp.MustCompile("SELECT .*name.* FROM .*users").MatchString(result.Statement.SQL.String()) {
+		t.Fatalf("SQL should not include selected names, but got %v", result.Statement.SQL.String())
+	}
+
+	result = DB.Session(&gorm.Session{DryRun: true}).Model(&User{}).Find(&[]User{}, user.ID)
+
+	if regexp.MustCompile("SELECT .*name.* FROM .*users").MatchString(result.Statement.SQL.String()) {
+		t.Fatalf("SQL should not include selected names, but got %v", result.Statement.SQL.String())
+	}
+
+	result = DB.Session(&gorm.Session{DryRun: true}).Model(&User{}).Find(&[]*User{}, user.ID)
+
+	if regexp.MustCompile("SELECT .*name.* FROM .*users").MatchString(result.Statement.SQL.String()) {
+		t.Fatalf("SQL should not include selected names, but got %v", result.Statement.SQL.String())
+	}
 }
 
 func TestNot(t *testing.T) {
@@ -292,19 +310,39 @@ func TestSelect(t *testing.T) {
 	dryDB := DB.Session(&gorm.Session{DryRun: true})
 	r := dryDB.Select("name", "age").Find(&User{})
 	if !regexp.MustCompile("SELECT .*name.*,.*age.* FROM .*users.*").MatchString(r.Statement.SQL.String()) {
-		t.Fatalf("Build NOT condition, but got %v", r.Statement.SQL.String())
+		t.Fatalf("Build Select with strings, but got %v", r.Statement.SQL.String())
 	}
 
 	r = dryDB.Select([]string{"name", "age"}).Find(&User{})
 	if !regexp.MustCompile("SELECT .*name.*,.*age.* FROM .*users.*").MatchString(r.Statement.SQL.String()) {
-		t.Fatalf("Build NOT condition, but got %v", r.Statement.SQL.String())
+		t.Fatalf("Build Select with slice, but got %v", r.Statement.SQL.String())
 	}
 
 	r = dryDB.Table("users").Select("COALESCE(age,?)", 42).Find(&User{})
-	if !regexp.MustCompile("SELECT COALESCE\\(age,.*\\) FROM .*users.*").MatchString(r.Statement.SQL.String()) {
-		t.Fatalf("Build NOT condition, but got %v", r.Statement.SQL.String())
+	if !regexp.MustCompile(`SELECT COALESCE\(age,.*\) FROM .*users.*`).MatchString(r.Statement.SQL.String()) {
+		t.Fatalf("Build Select with func, but got %v", r.Statement.SQL.String())
 	}
 	// SELECT COALESCE(age,'42') FROM users;
+
+	r = dryDB.Select("u.*").Table("users as u").First(&User{}, user.ID)
+	if !regexp.MustCompile(`SELECT u\.\* FROM .*users.*`).MatchString(r.Statement.SQL.String()) {
+		t.Fatalf("Build Select with u.*, but got %v", r.Statement.SQL.String())
+	}
+}
+
+func TestOmit(t *testing.T) {
+	user := User{Name: "OmitUser1", Age: 20}
+	DB.Save(&user)
+
+	var result User
+	DB.Where("name = ?", user.Name).Omit("name").Find(&result)
+	if result.ID == 0 {
+		t.Errorf("Should not have ID because only selected name, %+v", result.ID)
+	}
+
+	if result.Name != "" || result.Age != 20 {
+		t.Errorf("User Name should be omitted, got %v, Age should be ok, got %v", result.Name, result.Age)
+	}
 }
 
 func TestPluckWithSelect(t *testing.T) {
